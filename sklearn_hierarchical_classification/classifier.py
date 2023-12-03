@@ -145,7 +145,8 @@ class HierarchicalClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin)
 
     mlb_prediction_threshold : float
         For multi-label prediction tasks (when `mlb` is set to a MultiLabelBinarizer instance), can define a prediction
-        score threshold to use for considering a label to be a prediction. Defaults to zero.
+        score threshold to use for considering a label to be a prediction. Defaults to zero. If zero, only the argmax label 
+        on each node will be considered to be a prediction
 
     use_decision_function : bool
         Some classifiers (e.g. sklearn.svm.SVC) expose a `.decision_function()` method which would take in the
@@ -258,6 +259,7 @@ class HierarchicalClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin)
 
         return self
 
+    # TODO: tests should cover prediciton with mlb
     def predict(self, X):
         """Predict multi-class targets using underlying estimators.
 
@@ -282,10 +284,16 @@ class HierarchicalClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin)
                 return path[-1]
 
         if self.feature_extraction == "raw":
-            return np.array([
+            # TODO: this fix should be applied to predict_proba too
+            result = [
                 _classify(X[i])
                 for i in range(len(X))
-            ])
+            ]
+            # if mlb exists, then we cannot recast result as ndarray because it has an inhomogenous second dimension 
+            # corresponding to the predicted class labels (str type). So we just return as is instead
+            if self.mlb is not None:
+                return result
+            return np.array(result)
         else:
             X = check_array(X, accept_sparse="csr")
 
@@ -570,6 +578,7 @@ class HierarchicalClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin)
             clf.fit(X=X_, y=y_)
             self.graph_.nodes[node_id][CLASSIFIER] = clf
 
+    # TODO: this method seems to be not tested with mlb. Tests should cover this
     def _recursive_predict(self, x, root):  # noqa:C901 TODO: refactor
         if CLASSIFIER not in self.graph_.nodes[root]:
             return None, None
@@ -590,10 +599,15 @@ class HierarchicalClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin)
                     probs = clf.decision_function(x)
                     argmax = np.argmax(probs)
                     score = probs[argmax]
-            else:
-                probs = clf.predict_proba(x)[0]
+            else: # no decision function
+                # for raw feature-extraction, x will be single-dimensional array.
+                # To predict_proba, we need to recast it as a 2-D array
+                new_x = x if x.ndim > 1 else np.array([x])
+                probs = clf.predict_proba(new_x)[0]
                 argmax = np.argmax(probs)
                 score = probs[argmax]
+                # probs needs to be 2-D for later mlb class probability estimation
+                probs = np.array([probs])
 
             path_proba.append(score)
             if self.mlb is not None:
@@ -606,10 +620,15 @@ class HierarchicalClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin)
             for local_class_idx, class_ in enumerate(clf.classes_):
                 if self.mlb:
                     # when we have a multi-label binarizer
-                    class_idx = class_
+                    class_idx = list(self.mlb.classes_).index(class_)
                     class_proba[class_idx] = probs[0, local_class_idx]
-                    if class_proba[class_idx] > self.mlb_prediction_threshold:
-                        predictions.append(self.mlb.classes_[class_])
+                    # if mlb_prediction_threshold, considers only argmax label for further evaluation
+                    if self.mlb_prediction_threshold <= 0.:
+                        if local_class_idx == argmax:
+                            predictions.append(self.mlb.classes_[class_idx])
+                    else: # compute path for each class with probability higher than threshold
+                        if class_proba[class_idx] > self.mlb_prediction_threshold:
+                            predictions.append(self.mlb.classes_[class_idx])
                 else:
                     try:
                         class_idx = self.classes_.index(class_)
@@ -647,12 +666,15 @@ class HierarchicalClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin)
                 clf = None
                 for prediction in predictions:
                     pred_path, preds_prob = self._recursive_predict(x, prediction)
-                    path.append(prediction)
+                    # in this case, we don't have the current prediction on path 
+                    if pred_path is None:
+                        path.append(prediction)
                     if preds_prob is not None:
                         class_proba += preds_prob
                         path.extend(pred_path)
 
-        return path, class_proba
+        # remove ROOT label from path
+        return path[1:], class_proba
 
     def _should_early_terminate(self, current_node, prediction, score):
         """
