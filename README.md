@@ -1,5 +1,9 @@
 # sklearn-hierarchical-classification
 
+Fork of [sklearn-hierarchical-classification](https://github.com/globality-corp/sklearn-hierarchical-classification).
+
+The archived version of the original repo includes [`sklearn.preprocessing.MultiLabelBinarizer`](https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.MultiLabelBinarizer.html) support for multilabel hierarchical classification problems, but it never got a `2.0.0` release. This fork (currently) fixes some issues with `MultiLabelBinarizer` when doing predictions. Please refer to [`30cfe35`](https://github.com/lfmatosm/sklearn-hierarchical-classification/commit/30cfe352431f93798c5aa8ff0714959bd051cd29) for further details.
+
 ![PyPI](https://img.shields.io/pypi/v/sklearn-hierarchical-classification) [![CircleCI](https://circleci.com/gh/globality-corp/sklearn-hierarchical-classification.svg?style=svg&circle-token=6d5d6914ea5a5e2ad92cde6a8166bf25b229ad6a)](https://circleci.com/gh/globality-corp/sklearn-hierarchical-classification)
 
 Hierarchical classification module based on scikit-learn's interfaces and conventions.
